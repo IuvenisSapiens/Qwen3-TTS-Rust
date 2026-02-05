@@ -38,7 +38,23 @@ python assets/download_models.py
 ```
 模型将保存到 `models/` 目录。
 
-### 3. 资产转换 (可选)
+### 3. 模型转换 (进阶)
+如果你有原始的 PyTorch Checkpoint，可以使用 `assets/scripts` 下的工具进行转换：
+
+**1. 导出 ONNX (Codec, Speaker, Decoder):**
+```bash
+python assets/scripts/export_codec_encoder.py --checkpoint Qwen3-TTS.pt --output models/qwen3_tts_codec_encoder.onnx
+python assets/scripts/export_speaker_encoder.py --checkpoint Qwen3-TTS.pt --output models/qwen3_tts_speaker_encoder.onnx
+python assets/scripts/export_decoder.py --checkpoint Qwen3-TTS.pt --output models/qwen3_tts_decoder.onnx
+```
+
+**2. 转换 GGUF (Talker, Predictor):**
+```bash
+python assets/scripts/convert_talker_gguf.py --checkpoint Qwen3-TTS.pt --output models/qwen3_tts_talker-q4km.gguf --quantize q4_k_m
+python assets/scripts/convert_predictor_gguf.py --checkpoint Qwen3-TTS.pt --output models/qwen3_tts_predictor-q4km.gguf --quantize q4_k_m
+```
+
+### 4. 资产转换 (可选)
 如果需要将散落的 `.npy` 资产文件打包为单一的 `qwen3_assets.gguf` 文件（推荐）：
 1. 安装依赖：`pip install numpy gguf`
 2. 运行转换脚本：

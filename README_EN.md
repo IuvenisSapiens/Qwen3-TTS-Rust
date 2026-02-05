@@ -37,7 +37,23 @@ python assets/download_models.py
 ```
 Models will be saved to the `models/` directory.
 
-### 3. Asset Conversion (Optional)
+### 3. Model Conversion (Advanced)
+If you have original PyTorch checkpoints, use the tools in `assets/scripts`:
+
+**1. Export ONNX (Codec, Speaker, Decoder):**
+```bash
+python assets/scripts/export_codec_encoder.py --checkpoint Qwen3-TTS.pt --output models/qwen3_tts_codec_encoder.onnx
+python assets/scripts/export_speaker_encoder.py --checkpoint Qwen3-TTS.pt --output models/qwen3_tts_speaker_encoder.onnx
+python assets/scripts/export_decoder.py --checkpoint Qwen3-TTS.pt --output models/qwen3_tts_decoder.onnx
+```
+
+**2. Convert GGUF (Talker, Predictor):**
+```bash
+python assets/scripts/convert_talker_gguf.py --checkpoint Qwen3-TTS.pt --output models/qwen3_tts_talker-q4km.gguf --quantize q4_k_m
+python assets/scripts/convert_predictor_gguf.py --checkpoint Qwen3-TTS.pt --output models/qwen3_tts_predictor-q4km.gguf --quantize q4_k_m
+```
+
+### 4. Asset Conversion (Optional)
 If you need to pack scattered `.npy` asset files into a single `qwen3_assets.gguf` file (recommended for cleanliness):
 1. Install dependencies: `pip install numpy gguf`
 2. Run conversion script:
