@@ -12,9 +12,14 @@ Implementação em Rust do Qwen3-TTS, baseada em ONNX Runtime e llama.cpp (GGUF)
 
 ## Desempenho
 
-| Dispositivo | Quantização | RTF (Fator de Tempo Real) | Latência |
-|-------------|-------------|---------------------------|----------|
-| CPU (Int4) | Qwen2-Audio (GGUF) | 0.684 | ~2.5s |
+| Dispositivo | Quantização | RTF (Fator de Tempo Real) | Tempo Médio (10 exec.) |
+|-------------|-------------|---------------------------|------------------------|
+| CPU | Int4 (Q4) | 1.144 | ~4.44s |
+| CPU | F16 | 2.664 | ~9.47s |
+| CUDA | Int4 (Q4) | 0.608 | ~2.25s |
+| CUDA | F16 | 0.715 | ~2.60s |
+| Vulkan | Int4 (Q4) | 0.606 | ~2.30s |
+| Vulkan | F16 | 0.717 | ~2.87s |
 
 > Dados baseados na plataforma Windows, média de 10 execuções.
 
