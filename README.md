@@ -1,6 +1,6 @@
 # Qwen3-TTS Rust
 
-[中文](README.md) | [English](README_EN.md) | [日本語](README_JA.md) | [한국어](README_KO.md)
+[中文](README.md) | [English](README_EN.md) | [日本語](README_JA.md) | [한국어](README_KO.md) | [Deutsch](README_DE.md) | [Français](README_FR.md) | [Русский](README_RU.md) | [Português](README_PT.md) | [Español](README_ES.md) | [Italiano](README_IT.md)
 
 
 本项目是 Qwen3-TTS 的 Rust 实现，基于 ONNX Runtime 和 llama.cpp (GGUF)，旨在提供高性能、易集成的文本转语音能力。
