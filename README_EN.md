@@ -37,6 +37,16 @@ python assets/download_models.py
 ```
 Models will be saved to the `models/` directory.
 
+### 3. Asset Conversion (Optional)
+If you need to pack scattered `.npy` asset files into a single `qwen3_assets.gguf` file (recommended for cleanliness):
+1. Install dependencies: `pip install numpy gguf`
+2. Run conversion script:
+```bash
+python assets/convert_assets.py --input_dir /path/to/npy/files --output_file models/qwen3_assets.gguf
+```
+The engine will automatically prioritize loading `qwen3_assets.gguf`.
+
+
 ### 3. Voice Management (New)
 We recommend extracting voice features and saving them as `.qvoice` files for reuse.
 

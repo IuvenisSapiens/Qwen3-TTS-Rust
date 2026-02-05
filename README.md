@@ -38,6 +38,16 @@ python assets/download_models.py
 ```
 模型将保存到 `models/` 目录。
 
+### 3. 资产转换 (可选)
+如果需要将散落的 `.npy` 资产文件打包为单一的 `qwen3_assets.gguf` 文件（推荐）：
+1. 安装依赖：`pip install numpy gguf`
+2. 运行转换脚本：
+```bash
+python assets/convert_assets.py --input_dir /path/to/npy/files --output_file models/qwen3_assets.gguf
+```
+引擎会自动优先加载 `qwen3_assets.gguf`。
+
+
 ### 3. 音色管理 (New)
 我们推荐预先提取音色特征保存为 `.qvoice` 文件，以便重复使用。
 
