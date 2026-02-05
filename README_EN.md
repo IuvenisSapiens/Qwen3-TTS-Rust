@@ -37,6 +37,8 @@ python assets/download_models.py
 ```
 Models will be saved to the `models/` directory.
 
+> **Note**: We will upload the converted model files in the next few days. Stay tuned.
+
 ### 3. Model Conversion (Advanced)
 If you have original PyTorch checkpoints, use the tools in `assets/scripts`:
 

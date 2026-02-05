@@ -38,6 +38,8 @@ python assets/download_models.py
 ```
 模型将保存到 `models/` 目录。
 
+> **注意**：我们会在这几天上传转换好的模型文件，敬请期待。
+
 ### 3. 模型转换 (进阶)
 如果你有原始的 PyTorch Checkpoint，可以使用 `assets/scripts` 下的工具进行转换：
 

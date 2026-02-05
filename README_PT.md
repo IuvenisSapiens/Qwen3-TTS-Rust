@@ -37,6 +37,8 @@ python assets/download_models.py
 ```
 Os modelos serão salvos no diretório `models/`.
 
+> **Nota**: Enviaremos os arquivos de modelo convertidos nos próximos dias. Fique atento.
+
 ### 3. Gerenciamento de Voz (Novo)
 Recomendamos extrair características de voz e salvá-las como arquivos `.qvoice` para reutilização.
 
