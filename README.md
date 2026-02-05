@@ -108,5 +108,10 @@ fn main() -> Result<(), String> {
 - [x] 准备转换脚本
 - [ ] 导出 C API (可选)
 
+## 致谢
+感谢以下项目对本实现的启发和支持：
+- [Qwen3-TTS-GGUF](https://github.com/HaujetZhao/Qwen3-TTS-GGUF): 本项目参考了其 GGUF 推理流程。
+- [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS): Qwen3-TTS 的官方仓库。
+
 ## 许可证
 MIT / Apache 2.0
