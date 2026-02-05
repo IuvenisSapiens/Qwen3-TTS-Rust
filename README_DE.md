@@ -10,6 +10,14 @@ Rust-Implementierung von Qwen3-TTS, basierend auf ONNX Runtime und llama.cpp (GG
 - **Streaming-Ausgabe**: (Geplant) Unterstützung für Streaming-Audio-Generierung.
 - **Multi-Backend**: Unterstützt `ort` (ONNX) und `llama.cpp` (GGUF).
 
+## Leistung
+
+| Gerät | Quantisierung | RTF (Echtzeitfaktor) | Latenz |
+|--------|---------------|----------------------|--------|
+| CPU (Int4) | Qwen2-Audio (GGUF) | 0.684 | ~2.5s |
+
+> Daten basierend auf Windows-Plattform, Durchschnitt von 10 Läufen.
+
 ## Schnellstart
 
 ### 1. Umgebung vorbereiten (Windows)
