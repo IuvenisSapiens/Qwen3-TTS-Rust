@@ -7,7 +7,7 @@ Implementazione Rust di Qwen3-TTS, basata su ONNX Runtime e llama.cpp (GGUF), pr
 ## Caratteristiche
 - **Alte Prestazioni**: Inferenza principale scritta in Rust, supporta l'accelerazione CUDA e DirectML.
 - **Clonazione Vocale**: Supporta la clonazione vocale Zero-shot tramite audio di riferimento.
-- **Output in Streaming**: (Pianificato) Supporto per la generazione audio in streaming.
+- **Output in Streaming**: Supporto per la generazione audio in streaming.
 - **Multi-backend**: Supporta `ort` (ONNX) e `llama.cpp` (GGUF).
 
 ## Prestazioni
