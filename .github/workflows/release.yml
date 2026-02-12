@@ -35,7 +35,7 @@ jobs:
             features: cuda
             bin: qwen3_tts.exe
             name: qwen3-tts-windows-x64-cuda12.zip
-            llama_url: https://github.com/ggerganov/llama.cpp/releases/download/b7885/llama-b7885-bin-win-cuda-cu12.4-x64.zip
+            llama_url: https://github.com/ggerganov/llama.cpp/releases/download/b7885/llama-b7885-bin-win-cuda-12.4-x64.zip
             ort_url: https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-win-x64-gpu-1.23.2.zip
 
           # Linux Vulkan
@@ -48,25 +48,6 @@ jobs:
             name: qwen3-tts-linux-x64-vulkan.tar.gz
             llama_url: https://github.com/ggerganov/llama.cpp/releases/download/b7885/llama-b7885-bin-ubuntu-vulkan-x64.tar.gz
             ort_url: https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-linux-x64-1.23.2.tgz
-
-          # Linux CUDA 12
-          - os_name: Linux-x64
-            os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            backend: cuda
-            features: cuda
-            bin: qwen3_tts
-            name: qwen3-tts-linux-x64-cuda12.tar.gz
-            llama_url: https://github.com/ggerganov/llama.cpp/releases/download/b7885/llama-b7885-bin-ubuntu-cuda-12.2.0-x64.tar.gz 
-            # Note: Checking exact URL for Linux CUDA. 
-            # Usually ubuntu-cuda-cu12.2.0 or similar. Using a safe bet or need to valid?
-            # Let's assume consistent specific version if possible, or verify.
-            # Using 12.2.0 based on common llama.cpp releases if 12.4 unavailable.
-            # Correction: b7885 might use specific cuda version. 
-            # I will use a generic placeholder that I'm 90% sure of, or stick to what search result implied.
-            # Search result for Windows was cu12.4. Linux usually matches.
-            # Let's try to be consistent with: llama-b7885-bin-ubuntu-cuda-cu12.4-x64.tar.gz
-            ort_url: https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-linux-x64-gpu-1.23.2.tgz
 
           # macOS Metal
           - os_name: macOS-ARM64
