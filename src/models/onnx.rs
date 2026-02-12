@@ -17,16 +17,27 @@ fn create_session_with_best_ep(model_path: &str) -> Result<Session, Box<dyn Erro
     // ort 会自动 fallback 到下一个可用的提供者
 
     println!("  [ONNX] Requesting Execution Providers: CUDA -> DirectML -> CPU");
-    let session = Session::builder()?
-        .with_optimization_level(GraphOptimizationLevel::Level3)?
-        .with_execution_providers([
-            // 优先级 1: CUDA (NVIDIA GPU)
-            CUDAExecutionProvider::default().build(),
-            // 优先级 2: DirectML (Windows DirectX 12)
-            DirectMLExecutionProvider::default().build(),
-            // CPU 是默认的 fallback
-        ])?
-        .commit_from_file(model_path)?;
+    let builder = Session::builder()?;
+    println!("  [ONNX] Session Builder created.");
+
+    let builder = builder.with_optimization_level(GraphOptimizationLevel::Level3)?;
+    println!("  [ONNX] Optimization level set.");
+
+    // Split execution provider configuration for debugging
+    let cuda = CUDAExecutionProvider::default().build();
+    let dml = DirectMLExecutionProvider::default().build();
+    let cpu = ort::execution_providers::CPUExecutionProvider::default().build();
+
+    let builder = builder.with_execution_providers([
+        // 优先级 1: CUDA (NVIDIA GPU)
+        cuda, // 优先级 2: DirectML (Windows DirectX 12)
+        dml,  // CPU 是默认的 fallback
+        cpu,
+    ])?;
+    println!("  [ONNX] Execution Providers configured.");
+
+    let session = builder.commit_from_file(model_path)?;
+    println!("  [ONNX] Session committed from file.");
 
     Ok(session)
 }
@@ -34,12 +45,17 @@ fn create_session_with_best_ep(model_path: &str) -> Result<Session, Box<dyn Erro
 /// 创建 CPU Session (为了简化部署和减少 DLL 依赖)
 fn create_cpu_session(model_path: &str) -> Result<Session, Box<dyn Error>> {
     println!("  [ONNX] Requesting Execution Providers: CPU");
-    let session = Session::builder()?
-        .with_optimization_level(GraphOptimizationLevel::Level3)?
-        .with_execution_providers([
-            ort::execution_providers::CPUExecutionProvider::default().build()
-        ])?
-        .commit_from_file(model_path)?;
+    let builder = Session::builder()?;
+    println!("  [ONNX] CPU Session Builder created.");
+
+    let builder = builder.with_optimization_level(GraphOptimizationLevel::Level3)?;
+
+    let cpu = ort::execution_providers::CPUExecutionProvider::default().build();
+    let builder = builder.with_execution_providers([cpu])?;
+    println!("  [ONNX] CPU Provider configured.");
+
+    let session = builder.commit_from_file(model_path)?;
+    println!("  [ONNX] CPU Session committed.");
 
     Ok(session)
 }
@@ -489,5 +505,26 @@ impl CodecEmbeddings {
 }
 
 pub fn init_onruntime() -> Result<(), Box<dyn Error>> {
+    // Explicitly try to load onnxruntime.dll from runtime/ to ensure it's available
+    // or set PATH? ort might not use libloading directly for the dll itself in the same way.
+    // However, if we load it into the process, it might be found.
+    // Alternatively, we can try to set the environment variable path.
+
+    let dll_path = if std::path::Path::new("runtime/onnxruntime.dll").exists() {
+        "runtime/onnxruntime.dll"
+    } else {
+        "onnxruntime.dll"
+    };
+
+    // We don't necessarily need to keep the library handle if ort loads it its own way,
+    // but loading it here verifies existence and might help with resolution.
+    // NOTE: ort 2.0 might have specific configuration for DLL path.
+    // For now, let's just print where we think it is.
+    println!("  [ONNX] Init: Expecting DLL at {}", dll_path);
+
+    // Attempt to pre-load to see if it fails
+    // let _lib = libloading::Library::new(dll_path)?;
+    // ^ confusing ownership if we drop it.
+
     Ok(())
 }

@@ -1,135 +1,63 @@
 # Qwen3-TTS Rust
 
-[中文](../README.md) | [English](README_EN.md) | [日本語](README_JA.md) | [한국어](README_KO.md) | [Deutsch](README_DE.md) | [Français](README_FR.md) | [Русский](README_RU.md) | [Português](README_PT.md) | [Español](README_ES.md) | [Italiano](README_IT.md)
+[简体中文](../README.md) | [English](README_EN.md) | [日本語](README_JA.md) | [한국어](README_KO.md)
 
-ONNX Runtime과 llama.cpp (GGUF)를 기반으로 한 Qwen3-TTS의 Rust 구현입니다. 고성능이며 통합하기 쉬운 TTS(Text-to-Speech) 기능을 제공하는 것을 목표로 합니다.
+이 프로젝트는 Qwen3-TTS의 고성능 Rust 구현체입니다. 핵심적인 돌파구는 **"지시어 주도(Instruction-Driven)"** 합성 및 **"제로샷 사용자 정의 음색(Custom Speakers)"**의 깊은 통합입니다. Rust의 메모리 안전성과 llama.cpp/ONNX의 효율적인 추론을 결합하여 산업급 텍스트 음성 변환 솔루션을 제공합니다.
 
-## 특징
-- **고성능 아키텍처**: 핵심 로직은 Rust로 작성되었습니다. LLM 추론은 **llama.cpp**를 기반으로 하며, **CPU, CUDA, Vulkan** 백엔드 및 모델 양자화(Q4/F16)를 지원합니다.
-- **스트리밍 디코드**: 오디오 디코딩은 **ONNX Runtime (CPU)**을 사용하여 스트리밍 출력을 수행하며, 초고속 응답을 제공합니다.
-- **음성 복제**: 참조 오디오를 통한 제로샷(Zero-shot) 음성 복제를 지원합니다.
+## 🚀 핵심 도약: 지시어 및 사용자 정의
 
-## 성능
+기존의 TTS와 달리, Qwen3-TTS Rust는 간단한 텍스트 지시어로 음성 스타일을 제어할 수 있으며, 어떤 음색이든 몇 초 만에 복제할 수 있습니다.
 
-| 장치 | 양자화 | RTF (실시간 비율) | 평균 시간 (10회) |
-|--------|-------|-------------------|------------------|
-| CPU | Int4 (Q4) | 1.144 | ~4.44s |
-| CPU | F16 | 2.664 | ~9.47s |
-| CUDA | Int4 (Q4) | 0.608 | ~2.25s |
-| CUDA | F16 | 0.715 | ~2.60s |
-| Vulkan | Int4 (Q4) | 0.606 | ~2.30s |
-| Vulkan | F16 | 0.717 | ~2.87s |
+### 1. 지시어 주도 (Instruction-Driven)
+텍스트에 감정, 속도 또는 스타일 지시어를 직접 포함할 수 있습니다. 대규모 언어 모델(LLM)의 의미 이해 능력을 통해 AI가 "어떻게 읽어야 할지"를 스스로 판단합니다.
+> **예시**: `cargo run --example qwen3-tts -- --text "[기쁘게] 안녕하세요! 오늘 날씨가 정말 최고네요!" --voice-file "speaker.json"`
 
-> **테스트 환경**: Intel Core i9-13980HX, NVIDIA RTX 2080 Ti. VRAM 사용량 약 2GB.
-> Windows 플랫폼에서 10회 실행 평균 기준 데이터.
+### 2. 사용자 정의 음색 (Custom Speakers)
+더 이상 프리셋 음색에 얽매일 필요가 없습니다. 단 **24kHz WAV 참조 오디오**만 있으면 나만의 전용 음색 팩을 만들 수 있습니다.
+-   **원클릭 추출**: 화자 벡터(Speaker Embedding)와 음향 특징(Codec Codes)을 자동으로 추출합니다.
+-   **영구 저장**: 추출 후 `.json`으로 저장되며, 다음 사용 시 원본 오디오 파일이 필요하지 않습니다.
 
-## 빠른 시작
+## 🌟 기술적 장점
 
-### 1. 실행 환경 준비 (Windows)
-프로젝트 디렉토리에 관련 런타임 DLL을 배치해야 합니다.
-1. [ONNX Runtime](https://github.com/microsoft/onnxruntime/releases) (v1.23.2 권장)을 다운로드합니다.
-2. `../assets/download_dlls.ps1` 스크립트를 실행하여 ONNX Runtime (CPU 버전)을 자동으로 다운로드하고 설치합니다.
+-   **전체 플랫폼/전체 백엔드 지원**: **Windows / Linux / macOS**에 깊이 최적화되어 있으며, **CPU / CUDA / Vulkan / Metal**을 지원합니다.
+-   **제로 구성 런타임**: `llama.cpp` (b7885) 및 `onnxruntime` 바이너리 종속성을 자동 관리하며, 플랫폼 간 어셋 매핑 및 동적 로드를 지원합니다.
+-   **하이브리드 엔진**: 
+    -   **LLM 추론**: llama.cpp를 사용하여 텍스트에서 음향 특징으로의 변환을 처리하며, 기본적으로 **Vulkan** 하드웨어 가속을 사용합니다.
+    -   **오디오 디코딩**: ONNX Runtime(CPU)을 사용하여 효율적인 스트리밍 디코딩을 수행하며, 매우 낮은 첫 토큰 지연 시간을 실현합니다.
 
-### 2. 모델 리소스 준비
-제공된 Python 스크립트를 실행하여 사전 학습된 모델을 다운로드합니다:
-```bash
-python ../assets/download_models.py
-```
-모델은 `../models/` 디렉토리에 저장됩니다.
+## 🛠️ 빠른 조작 가이드
 
-> **참고**: 변환된 모델 파일은 며칠 내로 업로드될 예정입니다. 기대해 주세요.
-
-### 3. 음색 관리 (New)
-음성 특징을 추출하여 `.qvoice` 파일로 저장하고 재사용하는 것을 권장합니다.
-
-**음색 추출:**
+### 사용자 정의 음색 생성 및 저장
 ```powershell
-$env:PATH += ";$PWD\runtime"
-cargo run --example make_voice --release -- `
-    --model_dir ./models `
-    --input clone.wav `
-    --text "참조 오디오의 텍스트 내용" `
-    --output my_voice.qvoice `
-    --name "나만의 전용 음색" `
-    --gender "Female" `
-    --age "Young" `
-    --description "선명하고 부드러운 내레이션 음색"
+cargo run --example qwen3-tts -- `
+    --model-dir models `
+    --ref-audio "path/to/me.wav" `
+    --ref-text "녹음 시 말했던 텍스트 내용" `
+    --save-voice "models/presets/my_voice.json" `
+    --text "[흥분해서] 우와! 내 목소리가 이제 Rust 엔진으로 복제되었어!"
 ```
 
-**음색 팩을 사용하여 생성:**
+### 기존 음색 팩 사용
 ```powershell
-cargo run --example qwen3-tts --release -- --model_dir ./models --voice my_voice.qvoice --text "안녕하세요, 세계"
+cargo run --example qwen3-tts -- `
+    --model-dir models `
+    --voice-file "models/presets/my_voice.json" `
+    --text "Qwen3-TTS Rust 추론 엔진에 오신 것을 환영합니다." `
+    --max-steps 512
 ```
 
-### 4. 빠른 데모
-`run.ps1` 스크립트를 사용하여 데모를 실행합니다 (DLL 경로 자동 처리):
-```powershell
-.\run.ps1 --input clone.wav --ref_text "참조 오디오의 텍스트 내용" --text "안녕하세요, 세계"
+## 📂 자동 관리
+프로그램에는 **모델 및 런타임 자동 다운로드** 로직이 내장되어 있습니다. 첫 실행 시 HuggingFace에서 모델 파일을 자동으로 다운로드하고, 운영체제에 맞는 `llama.cpp` 공식 바이너리를 `runtime/` 디렉토리에 다운로드합니다.
+
+### 권장 디렉토리 구조
+```text
+models/
+├── onnx/      (Codec/Speaker/Decoder ONNX)
+├── tokenizer/ (Tokenizer Config)
+└── gguf/      (Talker/Predictor/Assets GGUF)
 ```
 
-또는 수동으로 실행합니다 (`runtime`이 PATH에 있는지 확인하십시오):
-```bash
-$env:PATH += ";$PWD\runtime"
-cargo run --example qwen3-tts --release -- --model_dir ./models --input clone.wav --ref_text "참조 오디오의 텍스트 내용" --text "안녕하세요, 세계"
-```
-
-## 라이브러리로 사용
-`Cargo.toml`에 다음을 추가하십시오:
-```toml
-[dependencies]
-qwen3-tts = { path = "../path/to/qwen3-tts-rust" }
-```
-
-### 예제 코드
-```rust
-use qwen3_tts::TtsEngine;
-use std::path::Path;
-
-fn main() -> Result<(), String> {
-    // 1. 엔진 초기화
-    // models (onnx/gguf) 및 assets (tokenizer.json 등) 포함 디렉토리 지정
-    let model_dir = Path::new("models");
-    let mut engine = TtsEngine::load(model_dir)?;
-
-    // 2. 입력 준비
-    let text = "안녕하세요, 이것은 Qwen3-TTS의 Rust 구현입니다.";
-    let ref_audio = Path::new("clone.wav"); // 참조 오디오 경로
-    let ref_text = "이것은 참조 오디오에 해당하는 텍스트 내용입니다."; // 참조 오디오 텍스트
-
-    // 3. 오디오 생성
-    // AudioSample 구조체 반환 (samples (Vec<f32>) 및 sample_rate 포함)
-    let audio = engine.generate(text, ref_audio, ref_text)?;
-
-    // 4. 저장 또는 재생
-    audio.save_wav("output.wav")?;
-    
-    // 5. (선택 사항) 리소스 정리
-    qwen3_tts::cleanup();
-    
-    Ok(())
-}
-```
-
-### API 설명
-- **`TtsEngine::load(path)`**: 필요한 모든 모델 리소스를 로드합니다. 몇 초 정도 걸리므로 애플리케이션 시작 시 한 번만 호출하는 것이 좋습니다.
-- **`engine.generate(text, ref_audio, ref_text)`**: 추론을 실행합니다.
-    - `text`: 합성할 대상 텍스트.
-    - `ref_audio`: 참조 오디오 경로 (WAV 형식, 16kHz+ 권장).
-    - `ref_text`: 참조 오디오에 해당하는 텍스트 (음색 복제의 정확성, 특히 중국어에서 중요).
-- **`audio.save_wav(path)`**: WAV 파일로 저장하기 위한 보조 메서드.
-
-## 개발 로드맵
-- [x] 코드 모듈화 리팩토링
-- [x] 하드코딩된 경로 제거
-- [x] 다운로드 스크립트 준비
-- [x] 변환 스크립트 준비
-- [ ] C API 내보내기 (선택 사항)
-
-## 감사의 말
-본 구현에 영감과 지원을 주신 다음 프로젝트에 감사드립니다:
-- [Qwen3-TTS-GGUF](https://github.com/HaujetZhao/Qwen3-TTS-GGUF): GGUF 추론 흐름을 참고하였습니다.
-- [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS): Qwen3-TTS의 공식 저장소.
-
-## 라이선스
-MIT / Apache 2.0
-
+## 📜 라이선스 및 감사
+- **MIT / Apache 2.0** 라이선스를 따릅니다.
+- 모델과 기술 기반을 제공해 준 [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) 공식 저장소에 감사드립니다.
+- GGUF 추론 흐름에 대한 영감을 준 [Qwen3-TTS-GGUF](https://github.com/HaujetZhao/Qwen3-TTS-GGUF)에 감사드립니다.

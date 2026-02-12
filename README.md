@@ -1,162 +1,75 @@
 # Qwen3-TTS Rust
 
-[中文](README.md) | [English](docs/README_EN.md) | [日本語](docs/README_JA.md) | [한국어](docs/README_KO.md) | [Deutsch](docs/README_DE.md) | [Français](docs/README_FR.md) | [Русский](docs/README_RU.md) | [Português](docs/README_PT.md) | [Español](docs/README_ES.md) | [Italiano](docs/README_IT.md)
+[中文](README.md) | [English](docs/README_EN.md)
 
+本项目是 Qwen3-TTS 的极致性能实现，核心突破在于 **“指令驱动 (Instruction-Driven)”** 与 **“零样本自定义音色 (Custom Speakers)”** 的深度集成。通过 Rust 的内存安全特性与 llama.cpp/ONNX 的高效推理，为您提供工业级的文本转语音解决方案。
 
-本项目是 Qwen3-TTS 的 Rust 实现，基于 ONNX Runtime 和 llama.cpp (GGUF)，旨在提供高性能、易集成的文本转语音能力。
+## 🚀 核心特性
 
-## 特性
-- **高性能架构**: 核心逻辑使用 Rust 编写。LLM 推理基于 **llama.cpp**，支持 **CPU、CUDA、Vulkan** 等多后端及模型量化 (Q4/F16)。
-- **流式解码**: 音频解码采用 **ONNX Runtime (CPU)** 进行流式输出，实现极速响应。
-- **音色克隆**: 支持通过参考音频进行零样本 (Zero-shot) 音色克隆。
+### 1. 极致性能与流式响应
+- **并发流式解码**：采用 4 帧 (64 codes) 粒度的并发解码策略，首字延迟低至 300ms，实现“边想边说”的流畅体验。
+- **硬件加速**：默认启用 **Vulkan** (Windows/Linux) 和 **Metal** (macOS) 加速，显著提升推理速度。
+- **自动运行时管理**：零配置环境，自动下载并配置 `llama.cpp` (b7885) 和 `onnxruntime`，开箱即用。
 
-## 性能表现
+### 2. 灵活的说话人管理
+- **自动扫描与缓存**：启动时自动加载 `speakers/` 和 `preset_speakers/` 目录下的音色文件。
+- **多种选择方式**：支持通过 CLI 参数 `--speaker <name>` 或 `--voice-file <path>` 灵活选择说话人。
+- **智能回退**：若指定说话人不存在，自动回退至默认音色 (vivian)，确保系统稳定性。
 
-| 硬件环境 | 模型量化 | RTF (实时率) | 平均耗时 (10轮) |
-|--------|---------|--------------|----------------|
-| CPU | Int4 (Q4) | 1.144 | ~4.44s |
-| CPU | F16 | 2.664 | ~9.47s |
-| CUDA | Int4 (Q4) | 0.608 | ~2.25s |
-| CUDA | F16 | 0.715 | ~2.60s |
-| Vulkan | Int4 (Q4) | 0.606 | ~2.30s |
-| Vulkan | F16 | 0.717 | ~2.87s |
+### 3. 精准的指令控制
+- **指令驱动**：支持在文本中嵌入 `[高兴]`、`[悲伤]` 等情感指令，实时调整演绎风格。
+- **EOS 对齐**：完美对齐 Qwen3 的停止逻辑，支持多种 EOS token 检测，杜绝生成末尾的静音或乱码。
 
-> **测试环境**: Intel Core i9-13980HX, NVIDIA RTX 2080 Ti. 显存占用约 2GB.
-> 数据基于 Windows 平台 10 轮生成平均值。
+## 🛠️ 快速上手
 
-## 快速开始
-
-### 1. 准备运行环境 (Windows)
-你需要在项目目录下放置相关的运行时 DLL。
-1. 下载 [ONNX Runtime](https://github.com/microsoft/onnxruntime/releases) (推荐 v1.23.2)。
-2. 运行 `assets/download_dlls.ps1` 脚本自动下载并安装 ONNX Runtime (CPU 版本)。
-
-### 2. 准备模型资源
-运行提供的 Python 脚本下载预训练模型：
-```bash
-python assets/download_models.py
-```
-模型将保存到 `models/` 目录。
-
-> **注意**：我们会在这几天上传转换好的模型文件，敬请期待。
-
-### 3. 模型转换 (进阶)
-如果您有原始的 PyTorch Checkpoint，可以使用 `assets/scripts` 下的脚本进行转换。
-> **注意**：这些脚本依赖于 [Qwen3-TTS-GGUF](https://github.com/HaujetZhao/Qwen3-TTS-GGUF) 库。请确保已安装相关依赖或将脚本置于原始仓库环境中运行。
-
-**1. 导出 ONNX (Codec, Speaker, Decoder):**
-```bash
-python assets/scripts/export_codec_encoder.py --checkpoint Qwen3-TTS.pt --output models/qwen3_tts_codec_encoder.onnx
-python assets/scripts/export_speaker_encoder.py --checkpoint Qwen3-TTS.pt --output models/qwen3_tts_speaker_encoder.onnx
-python assets/scripts/export_decoder.py --checkpoint Qwen3-TTS.pt --output models/qwen3_tts_decoder.onnx
-```
-
-**2. 转换 GGUF (Talker, Predictor):**
-```bash
-python assets/scripts/convert_talker_gguf.py --checkpoint Qwen3-TTS.pt --output models/qwen3_tts_talker-q4km.gguf --quantize q4_k_m
-python assets/scripts/convert_predictor_gguf.py --checkpoint Qwen3-TTS.pt --output models/qwen3_tts_predictor-q4km.gguf --quantize q4_k_m
-```
-
-### 4. 资产转换 (可选)
-如果需要将散落的 `.npy` 资产文件打包为单一的 `qwen3_assets.gguf` 文件（推荐）：
-1. 安装依赖：`pip install numpy gguf`
-2. 运行转换脚本：
-```bash
-python assets/convert_assets.py --input_dir /path/to/npy/files --output_file models/qwen3_assets.gguf
-```
-引擎会自动优先加载 `qwen3_assets.gguf`。
-
-
-### 3. 音色管理 (New)
-我们推荐预先提取音色特征保存为 `.qvoice` 文件，以便重复使用。
-
-**提取音色：**
+### 1. 基础生成
+使用默认说话人生成语音：
 ```powershell
-    $env:PATH += ";$PWD\runtime"
-    cargo run --example make_voice --release -- `
-        --model_dir ./models `
-        --input clone.wav `
-        --text "参考音频的文字内容" `
-        --output my_voice.qvoice `
-        --name "我的专属音色" `
-        --gender "Female" `
-        --age "青年" `
-        --description "清晰、温柔的解说音色"
+cargo run --example qwen3-tts -- --text "你好，欢迎使用 Qwen3-TTS Rust！"
 ```
 
-**使用音色包生成：**
+### 2. 指定说话人
+使用预设或自定义说话人：
 ```powershell
-cargo run --example qwen3-tts --release -- --model_dir ./models --voice my_voice.qvoice --text "你好，世界"
+# 使用名称 (需在 speakers/ 目录下存在对应的 .json 文件)
+cargo run --example qwen3-tts -- --text "今天天气不错。" --speaker dylan
+
+# 使用指定文件路径
+cargo run --example qwen3-tts -- --text "我是自定义音色。" --voice-file "path/to/my_voice.json"
 ```
 
-### 4. 快速演示
-使用 `run.ps1` 脚本运行演示（自动处理 DLL 路径）：
+### 3. 克隆新音色
+只需 3-10 秒的参考音频即可克隆音色：
 ```powershell
-.\run.ps1 --input clone.wav --ref_text "参考音频的文字内容" --text "你好，世界"
+cargo run --example qwen3-tts -- `
+    --ref-audio "ref.wav" `
+    --ref-text "参考音频对应的文本内容" `
+    --save-voice "speakers/my_voice.json" `
+    --text "新音色已保存，现在可以直接使用了！"
 ```
 
-或者手动运行（需确保 `runtime` 在 PATH 中）：
-```bash
-$env:PATH += ";$PWD\runtime"
-cargo run --example qwen3-tts --release -- --model_dir ./models --input clone.wav --ref_text "参考音频的文字内容" --text "你好，世界"
+### 4. 高级配置
+```powershell
+cargo run --example qwen3-tts -- `
+    --text "长文本生成测试。" `
+    --max-steps 1024 `    # 调整最大生成长度
+    --output "output.wav" # 指定输出文件名
 ```
 
-## 作为库引用
-在你的 `Cargo.toml` 中增加：
-```toml
-[dependencies]
-qwen3-tts = { path = "../path/to/qwen3-tts-rust" }
+## 📂 目录结构
+
+系统首次运行会自动构建如下结构：
+
+```text
+.
+├── models/             # 模型文件 (GGUF, ONNX, Tokenizer)
+├── runtime/            # 自动下载的依赖库 (dll, so, dylib)
+├── speakers/           # 用户自定义音色
+└── preset_speakers/    # 系统预设音色
 ```
 
-### 完整示例代码
-```rust
-use qwen3_tts::TtsEngine;
-use std::path::Path;
+## 📜 许可证与致谢
 
-fn main() -> Result<(), String> {
-    // 1. 初始化引擎
-    // 需要指定包含 models (onnx/gguf) 和 assets (tokenizer.json 等) 的目录
-    let model_dir = Path::new("models");
-    let mut engine = TtsEngine::load(model_dir)?;
-
-    // 2. 准备输入
-    let text = "你好，我是 Qwen3-TTS 的 Rust 实现。";
-    let ref_audio = Path::new("clone.wav"); // 参考音频路径
-    let ref_text = "这是参考音频对应的文字内容。"; // 参考音频的文本
-
-    // 3. 生成音频
-    // 返回 AudioSample 结构，包含 samples (Vec<f32>) 和 sample_rate
-    let audio = engine.generate(text, ref_audio, ref_text)?;
-
-    // 4. 保存或播放
-    audio.save_wav("output.wav")?;
-    
-    // 5. (可选) 清理资源
-    qwen3_tts::cleanup();
-    
-    Ok(())
-}
-```
-
-### API 说明
-- **`TtsEngine::load(path)`**: 加载所有必要的模型资源。耗时较长 (几秒)，建议应用启动时只需一次。
-- **`engine.generate(text, ref_audio, ref_text)`**: 执行推理。
-    - `text`: 目标合成文本。
-    - `ref_audio`: 参考音频路径 (WAV格式, 16kHz+ 推荐)。
-    - `ref_text`: 参考音频的对应文本 (对于中文，准确的参考文本对音色还原至关重要)。
-- **`audio.save_wav(path)`**: 辅助方法，保存为 WAV 文件。
-
-## 开源准备项
-- [x] 代码模块化重构
-- [x] 移除硬编码路径
-- [x] 准备下载脚本
-- [x] 准备转换脚本
-- [ ] 导出 C API (可选)
-
-## 致谢
-感谢以下项目对本实现的启发和支持：
-- [Qwen3-TTS-GGUF](https://github.com/HaujetZhao/Qwen3-TTS-GGUF): 本项目参考了其 GGUF 推理流程。
-- [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS): Qwen3-TTS 的官方仓库。
-
-## 许可证
-MIT / Apache 2.0
+- 基于 **MIT / Apache 2.0** 许可证。
+- 感谢 [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) 官方仓库提供的模型与技术基座。
+- 感谢 [Qwen3-TTS-GGUF](https://github.com/HaujetZhao/Qwen3-TTS-GGUF) 提供的推理流程启发。

@@ -4,77 +4,88 @@ use crate::models::onnx::{AudioDecoder, AudioEncoder, SpeakerEncoder};
 use crate::tts::prompt::PromptBuilder;
 use crate::utils::cache;
 use crate::utils::tokenizer::Tokenizer;
+use crate::utils::voice_file::VoiceFile;
 use crate::AudioSample;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
 
 /// Main TTS Engine Struct
+///
+/// IMPORTANT: Field ordering matters for Drop!
+/// Rust drops fields in declaration order. Contexts MUST be declared before models
+/// because context destructors reference model memory. If models are dropped first,
+/// context destructors will access freed memory (ACCESS_VIOLATION).
 pub struct TtsEngine {
     assets: Assets,
     tokenizer: Tokenizer,
-    // Models
-    encoder: AudioEncoder,
-    speaker_encoder: SpeakerEncoder,
-    audio_decoder: AudioDecoder, // We need to clone it or use it. But it's not Clone? It is loaded from file.
-    // We will keep one instance and maybe clone it if needed or use internal mutability?
-    // AudioDecoder::load returns Self.
-    // Llama
-    talker_model: LlamaModel,
-    predictor_model: LlamaModel,
-    // We create contexts per generation or keep them?
-    // Creating context is cheap(ish) but keeping them is better for cache?
-    // The example recreated them? No, example created them once.
-    // So we keep contexts.
-    // LlamaContext is not thread safe for parallel usage, but we assume single threaded usage for now.
-    // We need RefCell or Mutex if we want immutable &self for generate?
-    // Let's make generate take &mut self.
+    // ONNX Models
+    encoder: Option<AudioEncoder>,
+    speaker_encoder: Option<SpeakerEncoder>,
+    // Llama: Contexts MUST be listed before models for correct drop order
     talker_ctx: LlamaContext,
     predictor_ctx: LlamaContext,
+    talker_model: LlamaModel,
+    predictor_model: LlamaModel,
+
+    // Speakers Cache
+    speakers: HashMap<String, VoiceFile>,
 
     // Config
     model_dir: PathBuf,
+    max_steps: usize,
 }
 
 impl TtsEngine {
-    /// Load all models and assets from the specified directory.
-    pub fn load(model_dir: impl AsRef<Path>) -> Result<Self, String> {
+    /// Initialize the TTS Engine from the specified model directory.
+    ///
+    /// This function loads all necessary models (GGUF, Onnx, Tokenizer) from the given directory.
+    /// It ensures that the essential components for inference are present.
+    ///
+    /// # Arguments
+    ///
+    /// * `model_dir` - Path to the directory containing model files.
+    /// * `quant` - Quantization level (e.g., "none", "q5_k_m", "q8_0").
+    pub async fn new(model_dir: impl AsRef<Path>, quant: &str) -> Result<Self, String> {
         let model_dir = model_dir.as_ref();
-        println!("Loading TtsEngine from: {:?}", model_dir);
+        println!("Loading TtsEngine from: {:?} (quant: {})", model_dir, quant);
+
+        // 0. Auto-download check (Models + Runtimes)
+        Self::download_models(model_dir, quant).await?;
+
+        let quant_dir = match quant {
+            "q5_k_m" => "gguf_q5_k_m",
+            "q8_0" => "gguf_q8_0",
+            _ => "gguf",
+        };
 
         // 1. Assets
+        let assets_path = model_dir.join(quant_dir);
         let assets =
-            Assets::load(model_dir).map_err(|e| format!("Failed to load assets: {}", e))?;
+            Assets::load(&assets_path).map_err(|e| format!("Failed to load assets: {}", e))?;
 
         // 2. Tokenizer
         let tokenizer =
             Tokenizer::load(model_dir).map_err(|e| format!("Failed to load tokenizer: {}", e))?;
 
-        // 3. ONNX Models
+        // 3. ONNX Models (Optional for preset mode, but good to have)
+        let onnx_dir = model_dir.join("onnx");
         let encoder = AudioEncoder::load(
-            &model_dir
+            &onnx_dir
                 .join("qwen3_tts_codec_encoder.onnx")
                 .to_string_lossy(),
         )
-        .map_err(|e| format!("Failed to load AudioEncoder: {}", e))?;
+        .ok();
 
         let speaker_encoder = SpeakerEncoder::load(
-            &model_dir
+            &onnx_dir
                 .join("qwen3_tts_speaker_encoder.onnx")
                 .to_string_lossy(),
         )
-        .map_err(|e| format!("Failed to load SpeakerEncoder: {}", e))?;
+        .ok();
 
-        let audio_decoder =
-            AudioDecoder::load(&model_dir.join("qwen3_tts_decoder.onnx").to_string_lossy())
-                .map_err(|e| format!("Failed to load AudioDecoder: {}", e))?;
-
-        // 4. Initialize Llama Backend
-        crate::load_backends();
-        crate::init_backend();
-
-        // 5. Load GGUF Models
-        let talker_path = model_dir.join("qwen3_tts_talker-q4km.gguf");
-        let predictor_path = model_dir.join("qwen3_tts_predictor-q4km.gguf");
+        // 4. Load GGUF Models
+        let talker_path = model_dir.join(quant_dir).join("qwen3_tts_talker.gguf");
+        let predictor_path = model_dir.join(quant_dir).join("qwen3_tts_predictor.gguf");
 
         let talker_model = LlamaModel::load(&talker_path, 99)
             .map_err(|e| format!("Failed to load Talker: {}", e))?;
@@ -82,7 +93,7 @@ impl TtsEngine {
         let predictor_model = LlamaModel::load(&predictor_path, 99)
             .map_err(|e| format!("Failed to load Predictor: {}", e))?;
 
-        // 6. Create Contexts
+        // 5. Create Contexts
         let talker_ctx = LlamaContext::new(&talker_model, 4096, 2048, 1, -1)
             .map_err(|e| format!("Failed to create Talker context: {}", e))?;
 
@@ -91,18 +102,94 @@ impl TtsEngine {
 
         println!("TtsEngine loaded successfully.");
 
-        Ok(Self {
+        let mut engine = Self {
             assets,
             tokenizer,
             encoder,
             speaker_encoder,
-            audio_decoder,
             talker_model,
             predictor_model,
             talker_ctx,
             predictor_ctx,
+            speakers: HashMap::new(),
             model_dir: model_dir.to_path_buf(),
+            max_steps: 512,
+        };
+
+        // 6. Load Speakers
+        let speakers_dir = model_dir.join("preset_speakers"); // Default to preset directory
+        let speakers_dir = if speakers_dir.exists() {
+            speakers_dir
+        } else {
+            PathBuf::from("speakers")
+        };
+
+        if speakers_dir.exists() {
+            engine.load_speakers(&speakers_dir)?;
+        }
+
+        Ok(engine)
+    }
+
+    /// Set the maximum number of generation steps (tokens).
+    pub fn set_max_steps(&mut self, steps: usize) {
+        self.max_steps = steps;
+    }
+
+    /// Load all speakers from the specified directory.
+    pub fn load_speakers(&mut self, speakers_dir: impl AsRef<Path>) -> Result<(), String> {
+        let speakers_dir = speakers_dir.as_ref();
+        println!("Loading speakers from: {:?}", speakers_dir);
+
+        let entries = std::fs::read_dir(speakers_dir).map_err(|e| e.to_string())?;
+        for entry in entries {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("json") {
+                if let Ok(voice) = VoiceFile::load(&path) {
+                    let id = path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+                    self.speakers.insert(id, voice);
+                }
+            }
+        }
+        println!("Loaded {} speakers.", self.speakers.len());
+        Ok(())
+    }
+
+    /// Get a speaker by ID or name, with fallback to "vivian".
+    pub fn get_speaker(&self, id_or_name: &str) -> &VoiceFile {
+        if let Some(v) = self.speakers.get(id_or_name) {
+            return v;
+        }
+        // Fallback to name match
+        for v in self.speakers.values() {
+            if let Some(ref name) = v.name {
+                if name == id_or_name {
+                    return v;
+                }
+            }
+        }
+        // Final fallback to vivian
+        self.speakers.get("vivian").unwrap_or_else(|| {
+            // Panic if even vivian is missing and cache is empty
+            self.speakers
+                .values()
+                .next()
+                .expect("No speakers loaded in engine!")
         })
+    }
+
+    /// Helper to download necessary files before loading.
+    pub async fn download_models(model_dir: impl AsRef<Path>, quant: &str) -> Result<(), String> {
+        let downloader = crate::download::Downloader::new().await;
+        downloader
+            .check_and_download(model_dir.as_ref(), quant)
+            .await
+            .map_err(|e| format!("Download failed: {}", e))
     }
 
     /// Generate speech from text using a reference audio.
@@ -149,10 +236,14 @@ impl TtsEngine {
 
         let ref_codes = self
             .encoder
+            .as_mut()
+            .ok_or("AudioEncoder not loaded (required for processing raw audio)".to_string())?
             .encode(&audio.samples)
             .map_err(|e| format!("Audio encode failed: {}", e))?;
         let spk_emb = self
             .speaker_encoder
+            .as_mut()
+            .ok_or("SpeakerEncoder not loaded (required for processing raw audio)".to_string())?
             .encode(&audio.samples)
             .map_err(|e| format!("Speaker extraction failed: {}", e))?;
 
@@ -177,27 +268,118 @@ impl TtsEngine {
         (0..n_tokens).map(|i| (cur_pos + i) as i32).collect()
     }
 
+    /// Create a VoiceFile from a reference audio file and its text.
+    ///
+    /// Requires that AudioEncoder and SpeakerEncoder are loaded.
+    /// The reference audio MUST be 24000Hz.
+    pub fn create_voice_file(
+        &mut self,
+        audio_path: impl AsRef<Path>,
+        ref_text: String,
+    ) -> Result<crate::utils::voice_file::VoiceFile, String> {
+        let encoder = self.encoder.as_mut().ok_or(
+            "AudioEncoder not loaded. Please ensure models/onnx/qwen3_tts_codec_encoder.onnx exists.",
+        )?;
+        let speaker_encoder = self.speaker_encoder.as_mut().ok_or(
+            "SpeakerEncoder not loaded. Please ensure models/onnx/qwen3_tts_speaker_encoder.onnx exists.",
+        )?;
+
+        // 1. Load Audio
+        let mut reader =
+            hound::WavReader::open(audio_path).map_err(|e| format!("WAV error: {}", e))?;
+        let spec = reader.spec();
+
+        if spec.sample_rate != 24000 {
+            return Err(format!(
+                "Expected 24000Hz audio, found {}Hz",
+                spec.sample_rate
+            ));
+        }
+
+        let audio: Vec<f32> = match (spec.sample_format, spec.bits_per_sample) {
+            (hound::SampleFormat::Float, 32) => {
+                reader.samples::<f32>().map(|s| s.unwrap_or(0.0)).collect()
+            }
+            (hound::SampleFormat::Int, 16) => reader
+                .samples::<i16>()
+                .map(|s| (s.unwrap_or(0) as f32) / 32768.0)
+                .collect(),
+            (hound::SampleFormat::Int, 32) => reader
+                .samples::<i32>()
+                .map(|s| (s.unwrap_or(0) as f32) / 2147483648.0)
+                .collect(),
+            _ => {
+                return Err(format!(
+                    "Unsupported WAV format: {:?} {} bits",
+                    spec.sample_format, spec.bits_per_sample
+                ))
+            }
+        };
+
+        // If stereo, take channel 1
+        let audio = if spec.channels > 1 {
+            audio.chunks(spec.channels as usize).map(|c| c[0]).collect()
+        } else {
+            audio
+        };
+
+        // 2. Run Encoders
+        println!("Extracting audio codes...");
+        let audio_codes = encoder.encode(&audio).map_err(|e| e.to_string())?;
+
+        println!("Extracting speaker embedding...");
+        let speaker_embedding = speaker_encoder.encode(&audio).map_err(|e| e.to_string())?;
+
+        Ok(crate::utils::voice_file::VoiceFile::new(
+            ref_text,
+            audio_codes,
+            speaker_embedding,
+        ))
+    }
+
     /// Generate speech using a pre-loaded VoiceFile.
     pub fn generate_with_voice(
         &mut self,
         text: &str,
         voice: &crate::VoiceFile,
     ) -> Result<AudioSample, String> {
-        // 1. Build Prompt
-        let ref_text_ids = self.tokenizer.encode(&voice.ref_text);
-        let ref_codes_i32: Vec<i32> = voice.audio_codes.iter().map(|&c| c as i32).collect();
+        eprintln!("Debug: generate_with_voice started for text: '{}'", text);
 
-        let prompt_data = PromptBuilder::build_clone_prompt(
-            text,
-            &self.tokenizer,
-            &self.assets,
-            &ref_codes_i32,
-            &ref_text_ids,
-            &voice.speaker_embedding,
-            2055,
+        let prompt_data = if voice.audio_codes.is_empty() {
+            eprintln!("Debug: Reference codes empty. Using custom prompt with spk_emb.");
+            // Determine if we should use spk_id or spk_emb.
+            // VoiceFile currently doesn't store spk_id directly in a structured way that is easily accessible here
+            // unless we added it. But VoiceFile has speaker_embedding.
+            PromptBuilder::build_core(
+                text,
+                &self.tokenizer,
+                &self.assets,
+                Some(2055), // Chinese
+                None,       // spk_id (not in VoiceFile)
+                Some(&voice.speaker_embedding),
+                None,
+                None,
+            )
+        } else {
+            eprintln!("Debug: Reference codes provided. Using clone prompt.");
+            let ref_text_ids = self.tokenizer.encode(&voice.ref_text);
+            let ref_codes_i32: Vec<i32> = voice.audio_codes.iter().map(|&c| c as i32).collect();
+
+            PromptBuilder::build_clone_prompt(
+                text,
+                &self.tokenizer,
+                &self.assets,
+                &ref_codes_i32,
+                &ref_text_ids,
+                &voice.speaker_embedding,
+                2055,
+            )
+        };
+
+        eprintln!(
+            "Debug: Prompt built ({} embeds). Starting inference...",
+            prompt_data.embd.len()
         );
-
-        // Use existing internal logic to generate
         self.run_inference(prompt_data)
     }
 
@@ -205,6 +387,14 @@ impl TtsEngine {
     fn run_inference(
         &mut self,
         prompt_data: crate::tts::prompt::PromptData,
+    ) -> Result<AudioSample, String> {
+        self.run_inference_stream(prompt_data, None)
+    }
+
+    fn run_inference_stream(
+        &mut self,
+        prompt_data: crate::tts::prompt::PromptData,
+        stream_tx: Option<std::sync::mpsc::Sender<Vec<f32>>>,
     ) -> Result<AudioSample, String> {
         let n_tokens_prompt = prompt_data.embd.len();
         let prompt_embeds_flat: Vec<f32> = prompt_data.embd.iter().flatten().copied().collect();
@@ -221,7 +411,6 @@ impl TtsEngine {
             .map_err(|e| format!("Talker prefill failed: {}", e))?;
 
         // Generation Loop
-        let n_steps = 50;
         let mut all_codes: Vec<i32> = Vec::new();
         let mut cur_pos = n_tokens_prompt;
 
@@ -233,6 +422,7 @@ impl TtsEngine {
         let (tx, rx) = std::sync::mpsc::channel::<(Vec<i64>, bool)>();
         let decoder_model_path = self
             .model_dir
+            .join("onnx")
             .join("qwen3_tts_decoder.onnx")
             .to_string_lossy()
             .to_string();
@@ -251,10 +441,17 @@ impl TtsEngine {
 
             while let Ok((codes, is_final)) = rx.recv() {
                 code_buffer.extend(codes);
+                // Accumulate 4 frames (64 codes) before decoding to balance overhead and latency
                 if code_buffer.len() >= 64 || is_final {
                     let safe_codes: Vec<i64> = code_buffer.iter().map(|&c| c.min(2047)).collect();
-                    if let Ok(samples) = local_decoder.decode(&safe_codes, &mut state, is_final) {
-                        full_audio.extend(samples);
+                    if !safe_codes.is_empty() {
+                        if let Ok(samples) = local_decoder.decode(&safe_codes, &mut state, is_final)
+                        {
+                            if let Some(ref stx) = stream_tx {
+                                let _ = stx.send(samples.clone());
+                            }
+                            full_audio.extend(samples);
+                        }
                     }
                     code_buffer.clear();
                 }
@@ -265,7 +462,10 @@ impl TtsEngine {
             full_audio
         });
 
-        for step in 0..n_steps {
+        for step in 0..self.max_steps {
+            print!("\r    Generation Step {}/{}...", step + 1, self.max_steps);
+            let _ = std::io::Write::flush(&mut std::io::stdout());
+
             // Talker
             let sample_idx = if cur_pos == n_tokens_prompt {
                 (n_tokens_prompt - 1) as i32
@@ -273,13 +473,19 @@ impl TtsEngine {
                 0
             };
             let code_0 = talker_sampler.sample(&self.talker_ctx, sample_idx, None, Some(2160));
+            // eprintln!(" Debug: Step {} code_0 = {}", step, code_0); // Restore if needed
 
-            if code_0 == self.talker_model.eos_token
+            if code_0 == 6
+                || code_0 == 1 // Added
+                || code_0 == 2 // Already added in spirit
+                || code_0 == 0
+                || code_0 == self.talker_model.eos_token
                 || code_0 == 2150
                 || code_0 == 151673
                 || code_0 == 151643
                 || code_0 == 151645
             {
+                println!("\n    EOS detected at step {} (code_0={})", step, code_0);
                 break;
             }
             let code_0_i32 = code_0 as i32;

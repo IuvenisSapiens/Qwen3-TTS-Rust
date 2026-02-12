@@ -1,135 +1,63 @@
 # Qwen3-TTS Rust
 
-[中文](../README.md) | [English](README_EN.md) | [日本語](README_JA.md) | [한국어](README_KO.md) | [Deutsch](README_DE.md) | [Français](README_FR.md) | [Русский](README_RU.md) | [Português](README_PT.md) | [Español](README_ES.md) | [Italiano](README_IT.md)
+[简体中文](../README.md) | [English](README_EN.md) | [日本語](README_JA.md)
 
-ONNX Runtime と llama.cpp (GGUF) に基づく Qwen3-TTS の Rust 実装です。高性能で統合しやすいテキスト読み上げ機能を提供することを目指しています。
+本プロジェクトは Qwen3-TTS の極致性能を実現した Rust 実装です。核心的な進歩は **「指示駆動 (Instruction-Driven)」** と **「ゼロショット・カスタム音色 (Custom Speakers)」** の深い統合にあります。Rust のメモリ安全特性と llama.cpp/ONNX の効率的な推論を組み合わせ、工業レベルのテキスト読み上げソリューションを提供します。
 
-## 特徴
-- **高性能アーキテクチャ**: コアロジックは Rust で記述。LLM 推論は **llama.cpp** に基づき、**CPU、CUDA、Vulkan** バックエンドおよびモデル量子化 (Q4/F16) をサポート。
-- **ストリーミングデコード**: 音声デコードは **ONNX Runtime (CPU)** を使用してストリーミング出力を行い、超高速応答を実現。
-- **音声クローン**: 参照音声を使用したゼロショット (Zero-shot) 音声クローンをサポート。
+## 🚀 核心的な飛躍：指示とカスタマイズ
 
-## パフォーマンス
+従来の TTS とは異なり、Qwen3-TTS Rust では単純なテキスト指示で音声スタイルを制御でき、あらゆる音色を数秒でクローンできます。
 
-| デバイス | 量子化 | RTF (リアルタイム係数) | 平均時間 (10回) |
-|--------|-------|----------------------|-----------------|
-| CPU | Int4 (Q4) | 1.144 | ~4.44s |
-| CPU | F16 | 2.664 | ~9.47s |
-| CUDA | Int4 (Q4) | 0.608 | ~2.25s |
-| CUDA | F16 | 0.715 | ~2.60s |
-| Vulkan | Int4 (Q4) | 0.606 | ~2.30s |
-| Vulkan | F16 | 0.717 | ~2.87s |
+### 1. 指示駆動 (Instruction-Driven)
+テキストの中に感情、速度、スタイルの指示を直接含めることができます。大規模言語モデル (LLM) の意味理解能力により、AI が「どう読むべきか」を判断します。
+> **例**: `cargo run --example qwen3-tts -- --text "[嬉しそうに] こんにちは！今日の天気は本当に最高ですね！" --voice-file "speaker.json"`
 
-> **テスト環境**: Intel Core i9-13980HX, NVIDIA RTX 2080 Ti. VRAM使用量 約2GB.
-> Windows プラットフォームでの 10 回実行の平均値に基づきます。
+### 2. カスタム音色 (Custom Speakers)
+プリセットの音色に縛られることはもうありません。わずか **24kHz の WAV 参照オーディオ** があれば、専用の音色パックを作成できます。
+-   **ワンクリック抽出**: 話者ベクトル (Speaker Embedding) と音響特徴 (Codec Codes) を自動的に抽出します。
+-   **永久保存**: 抽出後は `.json` として保存され、次回の使用時に元の音声ファイルは不要です。
 
-## クイックスタート
+## 🌟 技術的優位性
 
-### 1. 実行環境の準備 (Windows)
-プロジェクト・ディレクトリに関連するランタイム DLL を配置する必要があります。
-1. [ONNX Runtime](https://github.com/microsoft/onnxruntime/releases) (v1.23.2 推奨) をダウンロードします。
-2. `../assets/download_dlls.ps1` スクリプトを実行して、ONNX Runtime (CPU 版) を自動的にダウンロードしてインストールします。
+-   **全プラットフォーム/全バックエンド対応**: **Windows / Linux / macOS** に深く適応し、 **CPU / CUDA / Vulkan / Metal** をサポートします。
+-   **ゼロ構成ランタイム**: `llama.cpp` (b7885) と `onnxruntime` のバイナリ依存関係を自動管理し、プラットフォーム間のアセットマッピングと動的ロードをサポートします。
+-   **ハイブリッド・エンジン**: 
+    -   **LLM 推論**: llama.cpp を使用してテキストから音響特徴への変換を処理し、デフォルトで **Vulkan** ハードウェアアクセラレーションを有効にします。
+    -   **音声デコード**: ONNX Runtime (CPU) を使用して効率的なストリーミングデコードを行い、極めて低い初回トークン遅延を実現します。
 
-### 2. モデルリソースの準備
-提供されている Python スクリプトを実行して、事前学習済みモデルをダウンロードします：
-```bash
-python ../assets/download_models.py
-```
-モデルは `../models/` ディレクトリに保存されます。
+## 🛠️ クイック操作ガイド
 
-> **注**: 変換済みのモデルファイルは数日中にアップロードされる予定です。ご期待ください。
-
-### 3. 音声管理 (New)
-音声特徴を抽出して `.qvoice` ファイルとして保存し、再利用することをお勧めします。
-
-**音声の抽出:**
+### カスタム音色を作成して保存する
 ```powershell
-$env:PATH += ";$PWD\runtime"
-cargo run --example make_voice --release -- `
-    --model_dir ./models `
-    --input clone.wav `
-    --text "参照音声のテキスト内容" `
-    --output my_voice.qvoice `
-    --name "私の専用音声" `
-    --gender "Female" `
-    --age "Young" `
-    --description "クリアで優しいナレーション音声"
+cargo run --example qwen3-tts -- `
+    --model-dir models `
+    --ref-audio "path/to/me.wav" `
+    --ref-text "録音時に話した内容" `
+    --save-voice "models/presets/my_voice.json" `
+    --text "[興奮気味に] ねえ！私の声が Rust エンジンにクローンされたよ！"
 ```
 
-**音声パックを使用して生成:**
+### 既存の音色パックを使用する
 ```powershell
-cargo run --example qwen3-tts --release -- --model_dir ./models --voice my_voice.qvoice --text "こんにちは、世界"
+cargo run --example qwen3-tts -- `
+    --model-dir models `
+    --voice-file "models/presets/my_voice.json" `
+    --text "Qwen3-TTS Rust 推論エンジンへようこそ。" `
+    --max-steps 512
 ```
 
-### 4. 高速デモ
-`run.ps1` スクリプトを使用してデモを実行します（DLL パスを自動処理します）：
-```powershell
-.\run.ps1 --input clone.wav --ref_text "参照音声のテキスト内容" --text "こんにちは、世界"
+## 📂 自動管理
+プログラムには、**モデルとランタイムの自動ダウンロード**ロジックが組み込まれています。初回実行時に HuggingFace からモデルファイルを自動的にダウンロードし、OS に応じた適切な `llama.cpp` 公式バイナリを `runtime/` ディレクトリにダウンロードします。
+
+### 推奨ディレクトリ構造
+```text
+models/
+├── onnx/      (Codec/Speaker/Decoder ONNX)
+├── tokenizer/ (Tokenizer Config)
+└── gguf/      (Talker/Predictor/Assets GGUF)
 ```
 
-または手動で実行します（`runtime` が PATH にあることを確認してください）：
-```bash
-$env:PATH += ";$PWD\runtime"
-cargo run --example qwen3-tts --release -- --model_dir ./models --input clone.wav --ref_text "参照音声のテキスト内容" --text "こんにちは、世界"
-```
-
-## ライブラリとしての使用
-`Cargo.toml` に以下を追加します：
-```toml
-[dependencies]
-qwen3-tts = { path = "../path/to/qwen3-tts-rust" }
-```
-
-### サンプルコード
-```rust
-use qwen3_tts::TtsEngine;
-use std::path::Path;
-
-fn main() -> Result<(), String> {
-    // 1. エンジンの初期化
-    // models (onnx/gguf) と assets (tokenizer.json 等) を含むディレクトリを指定
-    let model_dir = Path::new("models");
-    let mut engine = TtsEngine::load(model_dir)?;
-
-    // 2. 入力の準備
-    let text = "こんにちは、これは Qwen3-TTS の Rust 実装です。";
-    let ref_audio = Path::new("clone.wav"); // 参照音声パス
-    let ref_text = "これは参照音声に対応するテキスト内容です。"; // 参照音声のテキスト
-
-    // 3. 音声生成
-    // AudioSample 構造体を返します（samples (Vec<f32>) と sample_rate を含む）
-    let audio = engine.generate(text, ref_audio, ref_text)?;
-
-    // 4. 保存または再生
-    audio.save_wav("output.wav")?;
-    
-    // 5. (オプション) リソースのクリーンアップ
-    qwen3_tts::cleanup();
-    
-    Ok(())
-}
-```
-
-### API 説明
-- **`TtsEngine::load(path)`**: 必要なすべてのモデルリソースを読み込みます。数秒かかるため、アプリケーション起動時に一度だけ呼び出すことを推奨します。
-- **`engine.generate(text, ref_audio, ref_text)`**: 推論を実行します。
-    - `text`: 合成するターゲットテキスト。
-    - `ref_audio`: 参照音声パス (WAV形式, 16kHz+ 推奨)。
-    - `ref_text`: 参照音声に対応するテキスト (音声クローンの精度、特に中国語において重要)。
-- **`audio.save_wav(path)`**: WAV ファイルとして保存するためのヘルパーメソッド。
-
-## 開発ロードマップ
-- [x] コードのモジュール化リファクタリング
-- [x] ハードコードされたパスの削除
-- [x] ダウンロードスクリプトの準備
-- [x] 変換スクリプトの準備
-- [ ] C API のエクスポート (オプション)
-
-## 謝辞
-本実装のインスピレーションとサポートを頂いた以下のプロジェクトに感謝します：
-- [Qwen3-TTS-GGUF](https://github.com/HaujetZhao/Qwen3-TTS-GGUF): GGUF 推論フローの参考にさせていただきました。
-- [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS): Qwen3-TTS の公式リポジトリ。
-
-## ライセンス
-MIT / Apache 2.0
-
+## 📜 ライセンスと謝辞
+- **MIT / Apache 2.0** ライセンスに基づきます。
+- モデルと技術基盤を提供してくれた [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) 公式リポジトリに感謝します。
+- GGUF 推論フローのインスピレーションを与えてくれた [Qwen3-TTS-GGUF](https://github.com/HaujetZhao/Qwen3-TTS-GGUF) に感謝します。

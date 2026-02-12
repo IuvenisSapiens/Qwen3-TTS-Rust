@@ -2,13 +2,16 @@ use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::path::Path;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VoiceFile {
     /// Reference text corresponding to the audio features
+    #[serde(default)]
     pub ref_text: String,
     /// Extracted semantic codes from the Audio Encoder
+    #[serde(default)]
     pub audio_codes: Vec<i64>,
     /// Speaker embedding vector from the Speaker Encoder
+    #[serde(alias = "spk_emb")]
     pub speaker_embedding: Vec<f32>,
 
     // Metadata

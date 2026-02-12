@@ -27,7 +27,7 @@ impl Assets {
 
     fn load_gguf(path: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
         // Custom minimal GGUF reader to avoid dependencies
-        let mut file = std::fs::File::open(path)?;
+        let file = std::fs::File::open(path)?;
         let mut reader = std::io::BufReader::new(file);
 
         // 1. Header
@@ -153,19 +153,58 @@ impl Assets {
             f.seek(std::io::SeekFrom::Start(data_start + info.offset))?;
 
             let num_elems: usize = info.shape.iter().product();
+            println!(
+                "    Debug: Reading tensor '{}' shape={:?}, elems={}, bytes={}",
+                info.name,
+                info.shape,
+                num_elems,
+                num_elems * 4
+            );
             if info._type != 0 {
                 return Err(
                     format!("Unsupported tensor type: {} (expected F32)", info._type).into(),
                 );
             }
 
-            let mut bytes = vec![0u8; num_elems * 4];
-            f.read_exact(&mut bytes)?;
+            if num_elems * 4 != info.shape.iter().product::<usize>() * 4 {
+                // Paranoia check
+            }
 
-            let floats: Vec<f32> = bytes
-                .chunks_exact(4)
-                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                .collect();
+            // Allocate Vec<f32> directly
+            let mut floats = Vec::new();
+            if let Err(e) = floats.try_reserve_exact(num_elems) {
+                return Err(format!(
+                    "Failed to reserve memory for tensor '{}' (f32): {}",
+                    info.name, e
+                )
+                .into());
+            }
+            floats.resize(num_elems, 0.0);
+
+            // Read directly into the f32 buffer as bytes
+            // SAFETY: f32 and u8 have same layout size ratio (1:4).
+            // We just treat the slice of f32s as a mutable slice of u8s.
+            let byte_slice = unsafe {
+                std::slice::from_raw_parts_mut(floats.as_mut_ptr() as *mut u8, num_elems * 4)
+            };
+
+            // Read in chunks
+            let chunk_size = 100 * 1024 * 1024;
+            let total_bytes = num_elems * 4;
+            let mut current_read = 0;
+
+            while current_read < total_bytes {
+                let remaining = total_bytes - current_read;
+                let to_read = remaining.min(chunk_size);
+
+                f.read_exact(&mut byte_slice[current_read..current_read + to_read])?;
+                current_read += to_read;
+            }
+
+            println!(
+                "    Debug: Tensor '{}' read complete (optimized).",
+                info.name
+            );
             Ok(floats)
         };
 
@@ -175,14 +214,19 @@ impl Assets {
                 .get("proj.weight")
                 .ok_or("proj.weight (tensor) missing")?,
         )?;
+        println!("    Debug: proj.weight loaded.");
+
         let proj_bias = read_tensor_data(
             tensors
                 .get("proj.bias")
                 .ok_or("proj.bias (tensor) missing")?,
         )?;
+        println!("    Debug: proj.bias loaded.");
 
         let text_table = if let Some(info) = tensors.get("text_embd") {
-            read_tensor_data(info)?
+            let data = read_tensor_data(info)?;
+            println!("    Debug: text_embd loaded.");
+            data
         } else {
             println!("    WARNING: text_embd not found in GGUF!");
             Vec::new()
@@ -195,6 +239,7 @@ impl Assets {
                 codec_embeddings.push(read_tensor_data(info)?);
             }
         }
+        println!("    Debug: codec_embeddings loaded.");
 
         let tts_pad = if text_table.len() >= (151671 + 1) * 2048 {
             let start = 151671 * 2048;
@@ -202,6 +247,7 @@ impl Assets {
         } else {
             vec![0.0; 2048]
         };
+        println!("    Debug: tts_pad loaded.");
 
         println!(
             "    Loaded via GGUF (Custom Reader): ProjW={}, TextTbl={}, Codec={}",

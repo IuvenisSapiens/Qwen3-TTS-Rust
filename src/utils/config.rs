@@ -1,23 +1,23 @@
-//! Config module
+use clap::Parser;
 use std::path::PathBuf;
-use structopt::StructOpt;
-#[derive(Debug, StructOpt)]
-#[structopt(name = "qwen3-tts")]
+
+#[derive(Debug, Parser)]
+#[command(name = "qwen3-tts")]
 pub struct Args {
-    #[structopt(short, long, default_value = "model-base")]
+    #[arg(short, long, default_value = "model-base")]
     pub model: PathBuf,
-    #[structopt(short, long)]
+    #[arg(short, long)]
     pub text: Option<String>,
-    #[structopt(short, long)]
+    #[arg(short, long)]
     pub voice: Option<PathBuf>,
-    #[structopt(short, long, default_value = "chinese")]
+    #[arg(short, long, default_value = "chinese")]
     pub language: String,
-    #[structopt(short, long, default_value = "0.8")]
+    #[arg(short, long, default_value = "0.8")]
     pub temperature: f32,
-    #[structopt(short, long)]
+    #[arg(short, long)]
     pub stream: bool,
-    #[structopt(short, long)]
+    #[arg(short, long)]
     pub output: Option<PathBuf>,
-    #[structopt(short, long)]
+    #[arg(short, long)]
     pub verbose: bool,
 }

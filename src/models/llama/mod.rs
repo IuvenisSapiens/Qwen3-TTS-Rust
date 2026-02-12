@@ -148,14 +148,74 @@ static FFI: std::sync::OnceLock<LlamaFFI> = std::sync::OnceLock::new();
 pub fn get_ffi() -> &'static LlamaFFI {
     FFI.get_or_init(|| {
         unsafe {
-            let lib = libloading::Library::new("llama.dll")
-                .or_else(|_| libloading::Library::new("llama"))
-                .expect("Failed to load llama.dll. Please ensure it is in the current directory or PATH.");
+            // Get absolute path to runtime directory
+            let runtime_path = std::env::current_dir().unwrap().join("runtime");
+            let runtime_path_str = runtime_path.to_string_lossy();
 
-            // 加载 ggml.dll
-            let ggml_lib = libloading::Library::new("ggml.dll")
-                .or_else(|_| libloading::Library::new("ggml"))
+            // 1. Add to PATH/LD_LIBRARY_PATH (Most robust for all types of loading)
+            let path_key = if cfg!(target_os = "windows") {
+                "PATH"
+            } else if cfg!(target_os = "macos") {
+                "DYLD_LIBRARY_PATH"
+            } else {
+                "LD_LIBRARY_PATH"
+            };
+
+            let path_var = std::env::var_os(path_key).unwrap_or_default();
+            let mut paths: Vec<_> = std::env::split_paths(&path_var).collect();
+            if !paths.contains(&runtime_path) {
+                paths.insert(0, runtime_path.clone());
+                let new_path = std::env::join_paths(paths).unwrap();
+                std::env::set_var(path_key, new_path);
+                println!("  [System] Added to {}: {}", path_key, runtime_path_str);
+            }
+
+            // 2. Set DLL search path (Windows specific)
+            #[cfg(target_os = "windows")]
+            {
+                use std::os::windows::ffi::OsStrExt;
+                let path_wide = std::ffi::OsStr::new(&runtime_path)
+                    .encode_wide()
+                    .chain(std::iter::once(0))
+                    .collect::<Vec<u16>>();
+                winapi::um::winbase::SetDllDirectoryW(path_wide.as_ptr());
+                println!("  [System] SetDllDirectoryW set to: {}", runtime_path_str);
+            }
+
+            // 3. Set GGML_BACKEND_PATH (Llama.cpp specific)
+            std::env::set_var("GGML_BACKEND_PATH", &*runtime_path_str);
+            println!("  [System] GGML_BACKEND_PATH set to: {}", runtime_path_str);
+
+            // Library names based on platform
+            let (ggml_name, llama_name, libomp_name) = if cfg!(target_os = "windows") {
+                ("ggml.dll", "llama.dll", Some("libomp140.x86_64.dll"))
+            } else if cfg!(target_os = "macos") {
+                ("libggml.dylib", "libllama.dylib", None)
+            } else {
+                ("libggml.so", "libllama.so", None)
+            };
+
+            // Pre-load libomp if present
+            if let Some(omp_name) = libomp_name {
+                let libomp_path = runtime_path.join(omp_name);
+                let _libomp = libloading::Library::new(&libomp_path).ok();
+            }
+
+            // 加载 ggml (Dependency of llama)
+            let ggml_path = runtime_path.join(ggml_name);
+            let ggml_lib = libloading::Library::new(&ggml_path)
+                .map_err(|e| {
+                    eprintln!(
+                        "WARNING: Failed to load {} from {:?}: {}",
+                        ggml_name, ggml_path, e
+                    )
+                })
                 .ok();
+
+            // 加载 llama
+            let llama_path = runtime_path.join(llama_name);
+            let lib = libloading::Library::new(&llama_path)
+                .expect(&format!("Failed to load {}. Please ensure it is in the runtime/ directory.", llama_name));
 
             unsafe extern "C" fn dummy_fn() {}
 
@@ -169,6 +229,13 @@ pub fn get_ffi() -> &'static LlamaFFI {
                     .map(|s| *s)
                     .unwrap_or(dummy_fn)
             };
+
+            // Try to manually load vulkan backend to check for missing dependencies
+            let vulkan_path = runtime_path.join("ggml-vulkan.dll");
+            match libloading::Library::new(&vulkan_path) {
+                Ok(_) => println!("  [System] Verified: ggml-vulkan.dll is loadable."),
+                Err(e) => eprintln!("  [System] WARNING: ggml-vulkan.dll is NOT loadable: {}. This usually means missing Vulkan drivers or runtime.", e),
+            }
 
             let ffi = LlamaFFI {
                 llama_backend_init: *lib.get(b"llama_backend_init").expect("llama_backend_init"),
@@ -226,8 +293,18 @@ pub fn get_ffi() -> &'static LlamaFFI {
                 ggml_backend_load_all: load_all_fn,
             };
 
+            // Temporarily switch CWD to runtime/ to help ggml_backend_load_all() find its siblings
+            let original_cwd = std::env::current_dir().ok();
+            if let Some(ref path) = original_cwd {
+                let _ = std::env::set_current_dir(&runtime_path);
+            }
+
             (ffi.ggml_backend_load_all)(); // 加载所有 backend
             (ffi.llama_backend_init)(); // 初始化 backend
+
+            if let Some(path) = original_cwd {
+                let _ = std::env::set_current_dir(path);
+            }
 
             std::mem::forget(lib);
             if let Some(glib) = ggml_lib {
@@ -315,7 +392,9 @@ impl Clone for LlamaModel {
 
 pub struct LlamaContext {
     pub ptr: LlamaContextPtr,
-    pub model: LlamaModel,
+    /// Wrapped in ManuallyDrop to prevent double-free.
+    /// The model's lifetime is owned by TtsEngine; LlamaContext only borrows it.
+    pub model: std::mem::ManuallyDrop<LlamaModel>,
 }
 impl LlamaContext {
     pub fn new(
@@ -356,7 +435,7 @@ impl LlamaContext {
             }
             Ok(Self {
                 ptr,
-                model: model.clone(),
+                model: std::mem::ManuallyDrop::new(model.clone()),
             })
         }
     }

@@ -1,118 +1,47 @@
 # Qwen3-TTS Rust
 
-[中文](../README.md) | [English](README_EN.md) | [日本語](README_JA.md) | [한국어](README_KO.md) | [Deutsch](README_DE.md) | [Français](README_FR.md) | [Русский](README_RU.md) | [Português](README_PT.md) | [Español](README_ES.md) | [Italiano](README_IT.md)
+[简体中文](../README.md) | [English](README_EN.md) | [Français](README_FR.md)
 
-Implémentation Rust de Qwen3-TTS, basée sur ONNX Runtime et llama.cpp (GGUF), conçue pour fournir des capacités de synthèse vocale haute performance et faciles à intégrer.
+Ce projet est une implémentation Rust haute performance de Qwen3-TTS. Les percées majeures sont la synthèse **"Pilotée par Instructions (Instruction-Driven)"** et le **"Clonage de Voix Personnalisé (Custom Speakers)"**. En s'appuyant sur la sécurité mémoire de Rust et l'inférence efficace de llama.cpp/ONNX, il offre une solution de synthèse vocale de qualité industrielle.
 
-## Fonctionnalités
-- **Architecture haute performance**: Logique de base écrite en Rust. Inférence LLM basée sur **llama.cpp**, prenant en charge les backends **CPU, CUDA, Vulkan** et la quantification de modèle (Q4/F16).
-- **Décodage en streaming**: Le décodage audio utilise **ONNX Runtime (CPU)** pour la sortie en streaming, permettant une réponse ultra-rapide.
-- **Clonage de voix**: Prend en charge le clonage de voix Zero-shot via un audio de référence.
+## 🚀 Sauts Majeurs : Instructions & Personnalisation
 
-## Performance
+Contrairement aux systèmes TTS traditionnels, Qwen3-TTS Rust vous permet de contrôler le style de parole via de simples instructions textuelles et de cloner n'importe quelle voix en quelques secondes.
 
-| Appareil | Quantification | RTF (Facteur temps réel) | Temps moyen (10 exécutions) |
-|--------|----------------|--------------------------|-----------------------------|
-| CPU | Int4 (Q4) | 1.144 | ~4.44s |
-| CPU | F16 | 2.664 | ~9.47s |
-| CUDA | Int4 (Q4) | 0.608 | ~2.25s |
-| CUDA | F16 | 0.715 | ~2.60s |
-| Vulkan | Int4 (Q4) | 0.606 | ~2.30s |
-| Vulkan | F16 | 0.717 | ~2.87s |
+### 1. Synthèse Pilotée par Instructions (Instruction-Driven)
+Vous pouvez inclure des instructions d'émotion, de vitesse ou de style directement dans le texte. Le modèle de langage (LLM) utilise sa compréhension sémantique pour "savoir" comment lire.
+> **Exemple**: `cargo run --example qwen3-tts -- --text "[Joyeusement] Bonjour ! Le temps aujourd'hui est absolument fantastique !" --voice-file "speaker.json"`
 
-> **Environnement de test**: Intel Core i9-13980HX, NVIDIA RTX 2080 Ti. Utilisation VRAM env. 2GB.
-> Données basées sur la plateforme Windows, moyenne de 10 exécutions.
+### 2. Voix Personnalisées (Custom Speakers)
+Ne soyez plus limité aux voix prédéfinies. Avec un seul **audio de référence WAV en 24kHz**, vous pouvez créer un pack vocal unique.
+-   **Extraction en un clic**: Extrait automatiquement les vecteurs du locuteur (Speaker Embedding) et les caractéristiques acoustiques (Codec Codes).
+-   **Sauvegarde Permanente**: Sauvegardé en `.json` après extraction, aucun audio original n'est nécessaire pour une utilisation future.
 
-## Démarrage rapide
+## 🌟 Avantages Techniques
 
-### 1. Préparer l'environnement (Windows)
-Vous devez placer les DLL d'exécution pertinentes dans le répertoire du projet.
-1. Téléchargez [ONNX Runtime](https://github.com/microsoft/onnxruntime/releases) (v1.23.2 recommandé).
-2. Exécutez le script `../assets/download_dlls.ps1` pour télécharger et installer automatiquement ONNX Runtime (version CPU).
+-   **Multi-Plateforme/Backends**: Adaptation profonde pour **Windows / Linux / macOS**, supportant **CPU / CUDA / Vulkan / Metal**.
+-   **Runtime Sans Configuration**: Gère automatiquement les dépendances binaires de `llama.cpp` (b7885) et `onnxruntime`, avec mappage d'actifs multi-plateforme et chargement dynamique.
+-   **Moteur Hybride**: 
+    -   **Inférence LLM**: Utilise llama.cpp pour la conversion texte en caractéristiques acoustiques, avec accélération matérielle **Vulkan** activée par défaut.
+    -   **Décodage Audio**: Utilise ONNX Runtime (CPU) pour un décodage fluide, assurant une latence minimale.
 
-### 2. Préparer les modèles
-Exécutez le script Python fourni pour télécharger les modèles pré-entraînés :
-```bash
-python ../assets/download_models.py
-```
-Les modèles seront enregistrés dans le répertoire `../models/`.
+## 🛠️ Guide Rapide
 
-> **Remarque**: Nous téléchargerons les fichiers de modèles convertis dans les prochains jours. Restez à l'écoute.
-
-### 3. Gestion des voix (Nouveau)
-Nous recommandons d'extraire les caractéristiques vocales et de les enregistrer sous forme de fichiers `.qvoice` pour les réutiliser.
-
-**Extraire une voix :**
+### Créer et Sauvegarder une Voix Personnalisée
 ```powershell
-$env:PATH += ";$PWD\runtime"
-cargo run --example make_voice --release -- `
-    --model_dir ./models `
-    --input clone.wav `
-    --text "Contenu textuel de l'audio de référence" `
-    --output my_voice.qvoice `
-    --name "Ma voix personnalisée" `
-    --gender "Female" `
-    --age "Young" `
-    --description "Voix de narration claire et douce"
+cargo run --example qwen3-tts -- `
+    --model-dir models `
+    --ref-audio "path/to/me.wav" `
+    --ref-text "Le texte prononcé pendant l'enregistrement" `
+    --save-voice "models/presets/my_voice.json" `
+    --text "[Excité] Hé ! Ma voix a été clonée dans le moteur Rust !" `
+    --max-steps 512
 ```
 
-**Générer avec un pack vocal :**
-```powershell
-cargo run --example qwen3-tts --release -- --model_dir ./models --voice my_voice.qvoice --text "Bonjour le monde"
-```
+## 📂 Gestion Automatisée
+Le programme intègre une logique d'**auto-téléchargement des modèles et des runtimes**. Lors du premier lancement, il téléchargera automatiquement les modèles depuis HuggingFace et les binaires officiels de `llama.cpp` appropriés dans le dossier `runtime/` selon votre système d'exploitation.
 
-### 4. Démo rapide
-Utilisez le script `run.ps1` pour lancer la démo (gère automatiquement les chemins DLL) :
-```powershell
-.\run.ps1 --input clone.wav --ref_text "Contenu textuel de l'audio de référence" --text "Bonjour le monde"
-```
-
-Ou exécutez manuellement (assurez-vous que `runtime` est dans le PATH) :
-```bash
-$env:PATH += ";$PWD\runtime"
-cargo run --example qwen3-tts --release -- --model_dir ./models --input clone.wav --ref_text "Contenu textuel de l'audio de référence" --text "Bonjour le monde"
-```
-
-## Utilisation comme bibliothèque
-Ajoutez ceci à votre `Cargo.toml` :
-```toml
-[dependencies]
-qwen3-tts = { path = "../path/to/qwen3-tts-rust" }
-```
-
-### Code exemple
-```rust
-use qwen3_tts::TtsEngine;
-use std::path::Path;
-
-fn main() -> Result<(), String> {
-    // 1. Initialiser le moteur
-    let model_dir = Path::new("models");
-    let mut engine = TtsEngine::load(model_dir)?;
-
-    // 2. Préparer l'entrée
-    let text = "Bonjour, ceci est l'implémentation Rust de Qwen3-TTS.";
-    let ref_audio = Path::new("clone.wav");
-    let ref_text = "Ceci est le texte de l'audio de référence.";
-
-    // 3. Générer l'audio
-    let audio = engine.generate(text, ref_audio, ref_text)?;
-
-    // 4. Sauvegarder
-    audio.save_wav("output.wav")?;
-    
-    // 5. Nettoyer
-    qwen3_tts::cleanup();
-    
-    Ok(())
-}
-```
-
-## Remerciements
-Merci aux projets suivants pour leur inspiration et leur soutien :
-- [Qwen3-TTS-GGUF](https://github.com/HaujetZhao/Qwen3-TTS-GGUF) : Référence pour le flux d'inférence GGUF.
-- [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) : Dépôt officiel de Qwen3-TTS.
-
-## Licence
-MIT / Apache 2.0
-
+## 📜 Licence & Remerciements
+- Licence **MIT / Apache 2.0**.
+- Merci au dépôt officiel [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) pour les modèles et la base technique.
+- Merci à [Qwen3-TTS-GGUF](https://github.com/HaujetZhao/Qwen3-TTS-GGUF) pour l'inspiration sur le flux d'inférence GGUF.
