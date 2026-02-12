@@ -10,9 +10,6 @@ readme = "README.md"
 [lib]
 path = "src/lib.rs"
 
-[[example]]
-name = "qwen3-tts"
-path = "examples/qwen3_tts.rs"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
