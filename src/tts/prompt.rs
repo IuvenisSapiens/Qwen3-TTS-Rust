@@ -32,6 +32,7 @@ impl PromptBuilder {
         ref_text_ids: &[u32],
         spk_emb: &[f32],
         lang_id: usize,
+        instruct: Option<&str>,
     ) -> PromptData {
         let mut mid_embeds = Vec::new();
 
@@ -110,7 +111,7 @@ impl PromptBuilder {
             Some(lang_id),
             None,
             Some(spk_emb),
-            None,
+            instruct,
             Some(mid_embeds),
         )
     }

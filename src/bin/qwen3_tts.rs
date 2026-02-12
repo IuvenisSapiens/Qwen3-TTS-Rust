@@ -50,6 +50,10 @@ struct Args {
     /// Speaker name or ID (fallback to vivian)
     #[arg(short, long)]
     speaker: Option<String>,
+
+    /// Instruction style (e.g. "Happy", "Sad") - prepended to text
+    #[arg(long)]
+    instruction: Option<String>,
 }
 
 #[tokio::main]
@@ -108,9 +112,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 3. Generate
     let start_gen = Instant::now();
     println!("Generating...");
+
     // Generate
     let audio = engine
-        .generate_with_voice(&args.text, &voice)
+        .generate_with_voice(&args.text, &voice, args.instruction.as_deref())
         .map_err(|e| format!("Generation failed: {}", e))?;
 
     let gen_duration = start_gen.elapsed();

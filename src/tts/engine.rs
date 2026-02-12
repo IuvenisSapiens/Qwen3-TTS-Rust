@@ -198,6 +198,7 @@ impl TtsEngine {
         text: &str,
         ref_audio_path: impl AsRef<Path>,
         ref_text: &str,
+        instruct: Option<&str>,
     ) -> Result<AudioSample, String> {
         let ref_audio_path = ref_audio_path.as_ref();
 
@@ -217,6 +218,7 @@ impl TtsEngine {
             &ref_text_ids,
             &spk_emb,
             2055,
+            instruct,
         );
 
         self.run_inference(prompt_data)
@@ -342,6 +344,7 @@ impl TtsEngine {
         &mut self,
         text: &str,
         voice: &crate::VoiceFile,
+        instruct: Option<&str>,
     ) -> Result<AudioSample, String> {
         eprintln!("Debug: generate_with_voice started for text: '{}'", text);
 
@@ -357,7 +360,7 @@ impl TtsEngine {
                 Some(2055), // Chinese
                 None,       // spk_id (not in VoiceFile)
                 Some(&voice.speaker_embedding),
-                None,
+                instruct,
                 None,
             )
         } else {
@@ -373,6 +376,7 @@ impl TtsEngine {
                 &ref_text_ids,
                 &voice.speaker_embedding,
                 2055,
+                instruct,
             )
         };
 
@@ -475,16 +479,7 @@ impl TtsEngine {
             let code_0 = talker_sampler.sample(&self.talker_ctx, sample_idx, None, Some(2160));
             // eprintln!(" Debug: Step {} code_0 = {}", step, code_0); // Restore if needed
 
-            if code_0 == 6
-                || code_0 == 1 // Added
-                || code_0 == 2 // Already added in spirit
-                || code_0 == 0
-                || code_0 == self.talker_model.eos_token
-                || code_0 == 2150
-                || code_0 == 151673
-                || code_0 == 151643
-                || code_0 == 151645
-            {
+            if code_0 == 2150 || code_0 == 151673 {
                 println!("\n    EOS detected at step {} (code_0={})", step, code_0);
                 break;
             }
