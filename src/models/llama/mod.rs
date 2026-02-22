@@ -753,8 +753,12 @@ impl LlamaSampler {
             }
 
             // 7. Sample from distribution
+            // We don't call `.gen()` or `.gen_range()` to avoid parsing
+            // problems with `gen` being treated as a keyword.  Using
+            // `next_u32()` is a simple RNG primitive and still lets us honor
+            // the seeded `StdRng`.
             use rand::Rng;
-            let r: f32 = self.rng.borrow_mut().gen();
+            let r: f32 = self.rng.borrow_mut().next_u32() as f32 / (u32::MAX as f32);
             let mut cumsum = 0.0;
             for (idx, p) in probs.iter() {
                 cumsum += p;
@@ -886,7 +890,7 @@ impl LlamaSampler {
 
             // 7. Sample
             use rand::Rng;
-            let r: f32 = self.rng.borrow_mut().gen();
+            let r: f32 = self.rng.borrow_mut().next_u32() as f32 / (u32::MAX as f32);
             let mut cumsum = 0.0;
             for (idx, p) in probs.iter() {
                 cumsum += p;

@@ -84,6 +84,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Voice:     {:?}", args.voice_file);
     println!("Text:      {}", args.text);
 
+    // Make sure we load the local ONNX Runtime library instead of any
+    // system copy. This needs to happen before any sessions are created,
+    // which start during engine initialization.
+    qwen3_tts::models::onnx::init_onruntime()
+        .map_err(|e| format!("Failed to initialize ONNX runtime path: {}", e))?;
+
     // 0. Auto-download (Explicit step)
     println!("Checking models...");
     TtsEngine::download_models(&args.model_dir, &args.quant)

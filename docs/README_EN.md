@@ -9,7 +9,7 @@ This project is the ultimate performance implementation of Qwen3-TTS. The core b
 ### 1. Extreme Performance & Streaming
 - **Concurrent Streaming Decoding**: Uses a 4-frame (64 codes) granularity for concurrent decoding, determining first-token latency as low as 300ms for a "speech-while-thinking" experience.
 - **Hardware Acceleration**: **Vulkan** (Windows/Linux) and **Metal** (macOS) acceleration are enabled by default, significantly boosting inference speed.
-- **Automatic Runtime Management**: Zero-config environment; automatically downloads and configures `llama.cpp` (b7885) and `onnxruntime`, ready to use out of the box.
+- **Automatic Runtime Management**: Zero-config environment; automatically downloads and configures `llama.cpp` (b8123) and `onnxruntime`, ready to use out of the box.
 
 ### 2. Flexible Speaker Management
 - **Auto-Scan & Cache**: Automatically loads voice files from the `speakers/` directory on startup.

@@ -512,26 +512,46 @@ impl CodecEmbeddings {
 }
 
 pub fn init_onruntime() -> Result<(), Box<dyn Error>> {
-    // Explicitly try to load onnxruntime.dll from runtime/ to ensure it's available
-    // or set PATH? ort might not use libloading directly for the dll itself in the same way.
-    // However, if we load it into the process, it might be found.
-    // Alternatively, we can try to set the environment variable path.
-
-    let dll_path = if std::path::Path::new("runtime/onnxruntime.dll").exists() {
-        "runtime/onnxruntime.dll"
+    // Determine the local runtime DLL path. prefer absolute path so ORT_DYLIB_PATH is unambiguous.
+    let local_path = std::path::Path::new("runtime/onnxruntime.dll");
+    let dll_path = if local_path.exists() {
+        std::fs::canonicalize(local_path)?
     } else {
-        "onnxruntime.dll"
+        // fall back to whatever the system resolves; this will likely be the system copy.
+        std::path::PathBuf::from("onnxruntime.dll")
     };
 
-    // We don't necessarily need to keep the library handle if ort loads it its own way,
-    // but loading it here verifies existence and might help with resolution.
-    // NOTE: ort 2.0 might have specific configuration for DLL path.
-    // For now, let's just print where we think it is.
-    println!("  [ONNX] Init: Expecting DLL at {}", dll_path);
+    // Set ORT_DYLIB_PATH so that the `ort` crate loads the specified library instead of
+    // searching the system PATH (which on Windows may find the outdated one in system32).
+    unsafe { std::env::set_var("ORT_DYLIB_PATH", &dll_path) };
 
-    // Attempt to pre-load to see if it fails
-    // let _lib = libloading::Library::new(dll_path)?;
-    // ^ confusing ownership if we drop it.
+    // Also adjust PATH / loader directories as a fallback.
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        let runtime_dir = dll_path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| std::env::current_dir().unwrap());
+        let path_wide = runtime_dir
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect::<Vec<u16>>();
+        unsafe {
+            winapi::um::winbase::SetDllDirectoryW(path_wide.as_ptr());
+        }
+        let path_key = "PATH";
+        let path_var = std::env::var_os(path_key).unwrap_or_default();
+        let mut paths: Vec<_> = std::env::split_paths(&path_var).collect();
+        if !paths.contains(&runtime_dir) {
+            paths.insert(0, runtime_dir.clone());
+            let new_path = std::env::join_paths(paths).unwrap();
+            unsafe { std::env::set_var(path_key, new_path) };
+        }
+    }
+
+    println!("  [ONNX] Init: setting ORT_DYLIB_PATH = {:?}", dll_path);
 
     Ok(())
 }

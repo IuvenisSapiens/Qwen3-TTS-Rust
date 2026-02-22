@@ -150,7 +150,7 @@ impl Downloader {
         };
 
         // 1. ONNX Runtime
-        let ort_version = "1.23.2";
+        let ort_version = "1.24.2";
         let ort_ext = if os == "win" { "zip" } else { "tgz" };
         let ort_filename = format!("onnxruntime-{}-{}-{}.{}", os, arch, ort_version, ort_ext);
         let ort_dll_name = if os == "win" {
@@ -200,24 +200,24 @@ impl Downloader {
 
         if !runtime_dir.join(llama_dll).exists() {
             println!(
-                "Downloading Llama.cpp Runtimes (Official {} vB7885)...",
+                "Downloading Llama.cpp Runtimes (Official {} vB8123)...",
                 if backend.is_empty() { "Metal" } else { backend }
             );
             // URL Patterns:
-            // win: llama-b7885-bin-win-vulkan-x64.zip
-            // linux: llama-b7885-bin-ubuntu-vulkan-x64.tar.gz
-            // macos: llama-b7885-bin-macos-arm64.tar.gz
+            // win: llama-b8123-bin-win-vulkan-x64.zip
+            // linux: llama-b8123-bin-ubuntu-vulkan-x64.tar.gz
+            // macos: llama-b8123-bin-macos-arm64.tar.gz
             let asset_name = if backend.is_empty() {
-                format!("llama-b7885-bin-{}-{}.{}", release_os, arch, release_ext)
+                format!("llama-b8123-bin-{}-{}.{}", release_os, arch, release_ext)
             } else {
                 format!(
-                    "llama-b7885-bin-{}-{}-{}.{}",
+                    "llama-b8123-bin-{}-{}-{}.{}",
                     release_os, backend, arch, release_ext
                 )
             };
 
             let llama_url = format!(
-                "https://github.com/ggerganov/llama.cpp/releases/download/b7885/{}",
+                "https://github.com/ggerganov/llama.cpp/releases/download/b8123/{}",
                 asset_name
             );
 
